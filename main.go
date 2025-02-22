@@ -83,9 +83,9 @@ func startTimer(d time.Duration, session *discordgo.Session) {
 
 	for {
 		<-timer.C
-		logger.Debug("next tick")
+		timer.Reset(d) // directly reset, to limit drift, still drifts ~3 minutes per year with a 1 hour interval
+		logger.Debug("next tick", zap.Time("next", time.Now().Add(d)))
 		flipVisibility(session)
-		timer.Reset(d)
 	}
 }
 
