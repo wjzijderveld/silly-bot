@@ -10,6 +10,8 @@ The hosted version uses a 1 hour interval, so every other hour people won't be a
 2. For the channel(s) that you want to enable, add an advanced permission overwrite for the bot. Enable 'View Channel', 'Manage Channel' and 'Manage Permissions'
 3. Watch the chaos unfold
 
+![Permissions](permissions.png "Permissions")
+
 ## Run it yourself
 
 Either copy .env.dist to .env and fill in the required variables, or make sure they are available as environment variables.
