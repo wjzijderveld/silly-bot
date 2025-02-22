@@ -151,13 +151,40 @@ func determineNextState(managedChannel ManagedChannel, currentOverwrites []*disc
 	return allow, deny, nil
 }
 
+func shouldManageChannel(me string, channel *discordgo.Channel) bool {
+	if channel.Type != discordgo.ChannelTypeGuildText {
+		// we only care about regular text channels
+		return false
+	}
+
+	logger.Info("channel info", zap.String("name", channel.Name), zap.Any("permissionOverwrites", channel.PermissionOverwrites))
+
+	var hasManage, hasRoles, hasView = false, false, false
+	for _, overwrite := range channel.PermissionOverwrites {
+		if overwrite.ID != me {
+			continue
+		}
+		if overwrite.Allow&discordgo.PermissionManageChannels == discordgo.PermissionManageChannels {
+			hasManage = true
+		}
+		if overwrite.Allow&discordgo.PermissionManageRoles == discordgo.PermissionManageRoles {
+			hasRoles = true
+		}
+		if overwrite.Allow&discordgo.PermissionViewChannel == discordgo.PermissionViewChannel {
+			hasView = true
+		}
+	}
+
+	return hasManage && hasRoles && hasView
+}
+
 func openSession(session *discordgo.Session) {
 	session.AddHandlerOnce(func(session *discordgo.Session, _ *discordgo.Connect) {
-		logger.Info("connected to the Discord gateway \\o/")
+		logger.Info("connected to the Discord gateway \\o/", zap.Int("guilds", len(session.State.Guilds)))
 
 		var err error
 		for _, guild := range session.State.Guilds {
-			logger.Info("connected to guild", zap.String("guildId", guild.ID))
+			logger.Debug("checking next guild", zap.String("guildId", guild.ID), zap.String("name", guild.Name))
 
 			var channels []*discordgo.Channel
 			if channels, err = session.GuildChannels(guild.ID); err != nil {
@@ -166,44 +193,48 @@ func openSession(session *discordgo.Session) {
 			}
 
 			for _, channel := range channels {
-				if channel.Type != discordgo.ChannelTypeGuildText {
-					// we only care about regular text channels
+				if !shouldManageChannel(session.State.User.ID, channel) {
 					continue
 				}
 
-				logger.Info("channel info", zap.String("name", channel.Name), zap.Any("permissionOverwrites", channel.PermissionOverwrites))
-
-				var hasManage, hasView = false, false
-				for _, overwrite := range channel.PermissionOverwrites {
-					if overwrite.ID != session.State.User.ID {
-						continue
-					}
-					if overwrite.Allow&discordgo.PermissionManageChannels == discordgo.PermissionManageChannels {
-						hasManage = true
-					}
-					if overwrite.Allow&discordgo.PermissionViewChannel == discordgo.PermissionViewChannel {
-						hasView = true
-					}
-				}
-
-				if hasManage && hasView {
-					logger.Info("we have VIEW_CHANNEL & MANAGE_CHANNEL/PERMISSIONS permissions \\o/", zap.String("channel", channel.Name))
-					managedChannels = append(managedChannels, ManagedChannel{
-						GuildId:   channel.GuildID,
-						ChannelId: channel.ID,
-					})
-				}
-
-				if hasManage && !hasView {
-					logger.Info("we can manage a channel, but we also need VIEW_CHANNEL to be able to flip the permissions", zap.String("channel", channel.Name))
-				}
-			}
-
-			if len(managedChannels) == 0 {
-				logger.Info("no managed channels found, exiting")
-				os.Exit(0)
+				logger.Info("channel found to manage \\o/", zap.String("channel", channel.Name))
+				managedChannels = append(managedChannels, ManagedChannel{
+					GuildId:   channel.GuildID,
+					ChannelId: channel.ID,
+				})
 			}
 		}
+
+		logger.Info("finished checking all guilds", zap.Int("managed", len(managedChannels)))
+	})
+
+	session.AddHandler(func(session *discordgo.Session, event *discordgo.ChannelUpdate) {
+		// ⚠️  race condition galore, replace state with sync.Map if it becomes a problem
+
+		if !shouldManageChannel(session.State.User.ID, event.Channel) {
+			// unable to manage, see if we should remove it from our list
+			for index, mc := range managedChannels {
+				if mc.ChannelId == event.ID {
+					logger.Info("channel is no longer managed", zap.String("guildId", mc.GuildId), zap.String("channel", event.Name))
+					managedChannels = append(managedChannels[:index], managedChannels[index+1:]...)
+					return
+				}
+			}
+			return
+		}
+
+		for _, mc := range managedChannels {
+			if mc.ChannelId == event.ID {
+				// already managed
+				return
+			}
+		}
+
+		logger.Info("new managed channel detected", zap.String("guildId", event.GuildID), zap.String("channel", event.Name))
+		managedChannels = append(managedChannels, ManagedChannel{
+			GuildId:   event.GuildID,
+			ChannelId: event.ID,
+		})
 	})
 
 	if err := session.Open(); err != nil {

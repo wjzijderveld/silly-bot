@@ -27,5 +27,6 @@ Or run it in Docker
 
 - [x] Fix drift
 - [x] Add docker file
-- [ ] Add handler to connect new servers without needing a restart
+- [x] Add handler to connect new servers without needing a restart
+- [ ] Post message shortly before hiding the channel
 - [ ] Fix drift for real
