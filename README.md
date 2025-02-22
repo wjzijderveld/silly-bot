@@ -26,6 +26,6 @@ Or run it in Docker
 ## Todo
 
 - [x] Fix drift
-- [ ] Add docker file
+- [x] Add docker file
 - [ ] Add handler to connect new servers without needing a restart
 - [ ] Fix drift for real
